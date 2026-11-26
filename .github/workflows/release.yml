@@ -1,0 +1,35 @@
+# Publishing an update: on GitHub, open Actions → Release → Run workflow. GitHub's Windows machines run
+# the tests, build the installer for the version in package.json and publish it as a GitHub release.
+# Your friend's app finds it within 4 hours, downloads it in the background and installs it at the next restart.
+name: Release
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Stop if this version was released already
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "::error::Version $VERSION is already released. Raise the version in package.json first."
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish the update
+        run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
