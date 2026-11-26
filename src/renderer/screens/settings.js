@@ -66,7 +66,7 @@ function keyRow(app, kind) {
       h('span', { class: saved ? '' : 'muted' }, saved ? 'Saved' : 'Not set'),
       button(editing ? 'Cancel' : saved ? 'Replace' : 'Add', () => { ui.editKey = editing ? null : kind; ui.keyValue = ''; ui.keyResult = null; app.refresh(); })),
     editing ? h('div', { class: 'row' },
-      h('input', { class: 'input mono grow', type: 'password', placeholder: 'AIza…', oninput: (e) => { ui.keyValue = e.target.value.trim(); } }),
+      h('input', { class: 'input mono grow', type: 'password', placeholder: 'Paste your key', oninput: (e) => { ui.keyValue = e.target.value.trim(); } }),
       button('Test and save', async () => {
         ui.keyResult = await app.climb.keys.test(kind, ui.keyValue);
         if (ui.keyResult.ok) { ui.keys = await app.climb.keys.save(kind, ui.keyValue); ui.editKey = null; app.toast(ui.keyResult.message); }

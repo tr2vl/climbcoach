@@ -174,7 +174,7 @@ export function getStarted({ climb, settings, onFinish }) {
     const isGemini = kind === 'gemini';
     const result = state.keyResult[kind];
     const input = h('input', {
-      class: 'input mono grow', type: 'password', value: state.keys[kind], placeholder: 'AIza…', spellcheck: 'false', autocomplete: 'off',
+      class: 'input mono grow', type: 'password', value: state.keys[kind], placeholder: 'Paste your key', spellcheck: 'false', autocomplete: 'off',
       'aria-label': isGemini ? 'Gemini API key' : 'YouTube API key',
       oninput: (event) => { state.keys[kind] = event.target.value.trim(); state.keyResult[kind] = null; },
     });
@@ -233,7 +233,7 @@ export function getStarted({ climb, settings, onFinish }) {
       h('li', {}, h('span', {}, 'Sign in with your Google account. Any free Gmail account works.')),
       h('li', {}, h('span', {}, 'If AI Studio shows terms of service, read them and accept to continue.')),
       h('li', {}, h('span', {}, 'Click ', h('b', {}, 'Create API key'), '. If it asks for a project, choose ', h('b', {}, 'Create API key in new project'), '.')),
-      h('li', {}, h('span', {}, 'Copy the key with the copy button next to it. It starts with ', h('span', { class: 'code' }, 'AIza'), ' and is 39 characters long.')),
+      h('li', {}, h('span', {}, 'Copy the key with the copy button next to it. New keys start with ', h('span', { class: 'code' }, 'AQ.'), ' (older ones with ', h('span', { class: 'code' }, 'AIza'), ').')),
       h('li', {}, h('span', {}, 'Paste it below and press ', h('b', {}, 'Test and save'), '.')));
   }
 

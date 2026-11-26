@@ -46,10 +46,17 @@ export class KeyVault {
   }
 }
 
-/** A key that looks like a Google API key: "AIza" and 35 more letters, digits, "-" or "_". */
+/**
+ * Whether a pasted key could be a Google API key. Since May 2026 Google AI Studio makes keys starting with
+ * "AQ." (older ones start with "AIza" and are 39 characters long) and doesn't publish their length, so this
+ * only catches obvious slips: nothing pasted, spaces inside, or far too short. Google's answer decides the rest.
+ */
 export function looksLikeGoogleKey(value) {
-  return /^AIza[0-9A-Za-z_-]{35}$/.test(String(value ?? '').trim());
+  return /^[\x21-\x7e]{20,}$/.test(String(value ?? '').trim());
 }
+
+const SHAPE_MESSAGE = 'That doesn\'t look like an API key. Copy it again with the copy button next to it '
+  + '(Gemini keys start with "AQ." or, if older, "AIza").';
 
 /**
  * Checks a key with a request that costs nothing from the daily free requests:
@@ -58,7 +65,7 @@ export function looksLikeGoogleKey(value) {
 export async function testKey(kind, key, fetchImpl = fetch) {
   const clean = String(key ?? '').trim();
   if (!looksLikeGoogleKey(clean)) {
-    return { ok: false, message: 'That doesn\'t look like a Google API key. It starts with "AIza" and is 39 characters long.' };
+    return { ok: false, message: SHAPE_MESSAGE };
   }
   const url = kind === 'gemini'
     ? 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1'
@@ -72,6 +79,11 @@ export async function testKey(kind, key, fetchImpl = fetch) {
       return { ok: false, message: 'The key is real, but "YouTube Data API v3" isn\'t switched on for its project yet. Do step 2 again, wait a minute, then test again.' };
     }
     if (/API key not valid|API_KEY_INVALID/i.test(reason)) return { ok: false, message: 'Google says this key isn\'t valid. Copy it again with the copy button next to it.' };
+    // Some new "AQ." keys are refused this way; Google's advice is to delete the key and create a fresh one.
+    const reasons = (body?.error?.details ?? []).map((d) => d.reason);
+    if (kind === 'gemini' && (reasons.includes('ACCESS_TOKEN_TYPE_UNSUPPORTED') || response.status === 401)) {
+      return { ok: false, message: 'Google didn\'t accept this key. In AI Studio, delete it, press Create API key again and paste the new one. (Google: ' + reason + ')' };
+    }
     return { ok: false, message: `Google refused the key: ${reason}` };
   } catch (error) {
     return { ok: false, message: `Couldn't reach Google. Check your internet connection. (${error.message})` };

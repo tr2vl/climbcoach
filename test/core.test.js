@@ -236,13 +236,28 @@ test('requests encode the way the Gemini API expects', () => {
 // ---------- Keys ----------
 
 test('keys are checked for their shape before Google is asked', async () => {
+  const aq = `AQ.Ab8R${'x'.repeat(50)}`; // Google AI Studio's key format since May 2026
   assert.ok(looksLikeGoogleKey(`AIza${'x'.repeat(35)}`));
+  assert.ok(looksLikeGoogleKey(aq));
+  assert.ok(looksLikeGoogleKey(`  ${aq}\n`));
   assert.ok(!looksLikeGoogleKey('hello'));
+  assert.ok(!looksLikeGoogleKey('AQ.Ab8R xxxxxxxxxxxxxxxxxxxxxx'));
   let asked = 0;
-  const fake = async (url, options) => { asked += 1; assert.equal(options.headers['x-goog-api-key'], `AIza${'x'.repeat(35)}`); assert.ok(!url.includes('AIza')); return { ok: true }; };
+  const fake = async (url, options) => { asked += 1; assert.equal(options.headers['x-goog-api-key'], aq); assert.ok(!url.includes('AQ.')); return { ok: true }; };
   assert.equal((await testKey('gemini', 'nope', fake)).ok, false);
   assert.equal(asked, 0);
-  assert.equal((await testKey('gemini', `AIza${'x'.repeat(35)}`, fake)).ok, true);
+  assert.equal((await testKey('gemini', aq, fake)).ok, true);
+  assert.equal(asked, 1);
+});
+
+test('a key Google refuses says what to do', async () => {
+  const answer = (status, error) => async () => ({ ok: false, status, json: async () => ({ error }) });
+  const key = `AQ.Ab8R${'x'.repeat(50)}`;
+  const unsupported = await testKey('gemini', key, answer(401, { message: 'Request had invalid authentication credentials.', details: [{ reason: 'ACCESS_TOKEN_TYPE_UNSUPPORTED' }] }));
+  assert.equal(unsupported.ok, false);
+  assert.match(unsupported.message, /delete it, press Create API key again/);
+  const invalid = await testKey('gemini', key, answer(400, { message: 'API key not valid. Please pass a valid API key.', details: [{ reason: 'API_KEY_INVALID' }] }));
+  assert.match(invalid.message, /isn't valid/);
 });
 
 // ---------- Database, training and the coach ----------

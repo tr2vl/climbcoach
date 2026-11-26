@@ -32,12 +32,15 @@ belong on GitHub (no `node_modules`, no `dist`).
 1. On github.com: **+** (top right) **→ New repository**. Name `climbcoach`, **Public**, and leave README,
    .gitignore and license **off**. Click **Create repository**.
 2. On the next page, click the **uploading an existing file** link.
-3. Open `climbcoach-upload` in Finder and press **Cmd+Shift+.** so the hidden `.github` folder and
-   `.gitignore` show (`.github` holds the build instructions; without it nothing gets built). Press
-   **Cmd+A** and drag everything onto the GitHub page. Don't drag the `climbcoach-upload` folder itself,
-   or everything ends up one folder too deep.
+3. Open `climbcoach-upload` in Finder, press **Cmd+A** and drag everything onto the GitHub page. Don't drag
+   the `climbcoach-upload` folder itself, or everything ends up one folder too deep.
 4. Wait until all files are listed, type `ClimbCoach for Windows 1.0.0` as the message, click
-   **Commit changes**. Check that `.github` is in the file list on the repository's main page.
+   **Commit changes**.
+5. The upload skips hidden files (names starting with a dot: "This file is hidden"), so add those three by
+   hand: **Add file → Create new file**, type the name (`.gitignore`, then
+   `.github/workflows/release.yml`, then `.github/workflows/check.yml`; typing `/` makes the folders), paste
+   the file's contents from `climbcoach-upload` and click **Commit changes…** twice. `.github` holds the
+   build instructions; without it nothing gets built.
 
 ## Publishing a version
 

@@ -60,8 +60,8 @@ export function createDemoBridge() {
       save: async (kind, value) => { keys[kind] = Boolean(value); return { ...keys }; },
       test: async (kind, value) => {
         await wait(900);
-        if (!/^AIza[0-9A-Za-z_-]{35}$/.test(value ?? '')) {
-          return { ok: false, message: 'That doesn\'t look like a Google API key. It starts with "AIza" and is 39 characters long.' };
+        if (!/^[\x21-\x7e]{20,}$/.test((value ?? '').trim())) {
+          return { ok: false, message: 'That doesn\'t look like an API key. Copy it again with the copy button next to it (Gemini keys start with "AQ." or, if older, "AIza").' };
         }
         return { ok: true, message: kind === 'gemini' ? 'The key works. Your coach can watch matches. (Demo: only the format was checked.)' : 'The key works. Learn can search for guides. (Demo: only the format was checked.)' };
       },
