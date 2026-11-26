@@ -1,6 +1,8 @@
 # Publishing an update: on GitHub, open Actions → Release → Run workflow. GitHub's Windows machines run
 # the tests, build the installer for the version in package.json and publish it as a GitHub release.
 # Your friend's app finds it within 4 hours, downloads it in the background and installs it at the next restart.
+# electron-builder only builds here: its own publishing (26.18.0) can create the release twice at once and fail
+# halfway, so the GitHub CLI publishes the installer and latest.yml in one go instead.
 name: Release
 on:
   workflow_dispatch:
@@ -11,6 +13,9 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -23,13 +28,27 @@ jobs:
         shell: bash
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          if gh release view "v$VERSION" >/dev/null 2>&1; then
-            echo "::error::Version $VERSION is already released. Raise the version in package.json first."
+          DRAFT=$(gh release view "v$VERSION" --json isDraft --jq .isDraft 2>/dev/null || true)
+          if [ "$DRAFT" = "false" ]; then
+            echo "::error::Version $VERSION is already released. Raise the version in package.json first (or delete a broken v$VERSION release under Releases)."
             exit 1
           fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and publish the update
-        run: npx electron-builder --win --publish always
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          if [ "$DRAFT" = "true" ]; then
+            echo "An unfinished draft of v$VERSION is left from an earlier try; removing it."
+            gh release delete "v$VERSION" --yes
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - name: Build the installer
+        run: npx electron-builder --win --publish never
+      - name: Publish the update
+        shell: bash
+        run: |
+          FILES=("dist/ClimbCoach-Setup-$VERSION.exe" "dist/ClimbCoach-Setup-$VERSION.exe.blockmap" "dist/latest.yml")
+          for f in "${FILES[@]}"; do
+            [ -f "$f" ] || { echo "::error::The build didn't make $f."; ls dist; exit 1; }
+          done
+          # The installed app finds updates through this file; without it, it would never update.
+          grep -q "owner:" dist/win-unpacked/resources/app-update.yml || { echo "::error::The app's update settings are missing."; exit 1; }
+          cat dist/latest.yml
+          # With files attached, gh makes a draft, uploads them, then publishes: nobody sees a half-finished release.
+          gh release create "v$VERSION" "${FILES[@]}" --title "$VERSION" --notes "ClimbCoach $VERSION" --target "$GITHUB_SHA"
