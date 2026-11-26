@@ -6,7 +6,9 @@ import { GeminiError, errorFromResponse } from './errors.js';
 import { encodeRequest } from './request.js';
 
 export const BASE = 'https://generativelanguage.googleapis.com';
-const GENERATE_TIMEOUT = 240_000;
+// A full-match video call normally answers within 2 minutes. Google counts a request it took even when it never
+// answers, so ClimbCoach waits long for a busy model rather than giving up and sending it again.
+const GENERATE_TIMEOUT = 480_000;
 
 export class GeminiClient {
   constructor(apiKey, { fetchImpl = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
@@ -23,7 +25,7 @@ export class GeminiClient {
     } catch (error) {
       if (options.signal?.aborted) throw new GeminiError('cancelled');
       // An overloaded model can hang instead of answering 503.
-      if (error.name === 'TimeoutError') throw new GeminiError('overloaded');
+      if (error.name === 'TimeoutError') throw new GeminiError('noAnswer', { minutes: Math.round(timeout / 60_000) });
       throw error;
     }
     if (!response.ok) throw errorFromResponse(response.status, await response.text());

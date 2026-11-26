@@ -79,7 +79,8 @@ export function createDemoBridge() {
       location.reload();
     },
     updates: { status: async () => ({ state: 'current' }), check: async () => ({ state: 'current' }), install: async () => {}, onChange: () => () => {} },
-    usage: async () => ({ today: [{ model: 'gemini-4-hydrogen', requests: 5, inputTokens: 251_000, outputTokens: 14_000, lastLimit: null }], bestLeft: 15 }),
+    usage: async () => ({ today: [{ model: 'gemini-4-hydrogen', requests: 5, inputTokens: 251_000, outputTokens: 14_000, lastLimit: null },
+      { model: 'gemini-3.8-flash', requests: 0, unanswered: 2, inputTokens: 0, outputTokens: 0, lastLimit: null, busyUntil: new Date(Date.now() + 18 * 60_000).toISOString() }], bestLeft: 15 }),
     data: { snapshot: async () => structuredClone(data), onChange: (fn) => listeners.data.push(fn) },
     matches: {
       pickVideo: async () => null,

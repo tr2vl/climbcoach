@@ -1,8 +1,11 @@
 // Gemini errors, mapped from the API's error responses (port of GeminiError).
 
+/** How long a model too busy to answer is left alone (GeminiState.busyPause). */
+export const BUSY_PAUSE_MINUTES = 20;
+
 export class GeminiError extends Error {
   /**
-   * @param {string} kind invalidKey | quotaExceeded | noFreeModel | accountRefused | searchNotFree | overloaded |
+   * @param {string} kind invalidKey | quotaExceeded | noFreeModel | accountRefused | searchNotFree | overloaded | noAnswer |
    *   modelUnavailable | badRequest | server | fileProcessingFailed | blocked | malformedResponse | cancelled
    */
   constructor(kind, details = {}) {
@@ -28,7 +31,12 @@ export class GeminiError extends Error {
           + 'Check aistudio.google.com → Rate limits: it should say "Free tier". If the project stays stuck, create a new API key in a new project there and save it in Settings.';
       case 'searchNotFree': return 'This needs Google Search inside Gemini, which isn\'t part of the free tier. Your key itself is fine.';
       case 'noFreeModel': return `No free Gemini model could take the request right now:\n${(d.reasons ?? []).map((line) => `• ${line}`).join('\n')}`;
-      case 'overloaded': return 'Gemini is overloaded right now. Try again in a few minutes.';
+      case 'overloaded':
+        return `Gemini is too busy right now (Google answered "overloaded"). ClimbCoach leaves it alone for ${BUSY_PAUSE_MINUTES} minutes `
+          + 'instead of asking again and again; try again after that.';
+      case 'noAnswer':
+        return `Gemini took the request but didn't answer within ${d.minutes} minute${d.minutes === 1 ? '' : 's'}: it's too busy right now. `
+          + `ClimbCoach leaves it alone for ${BUSY_PAUSE_MINUTES} minutes; try again after that.`;
       case 'modelUnavailable': return `Model not available: ${d.message}`;
       case 'badRequest': return `Gemini rejected the request: ${d.message}`;
       case 'server': return `Gemini error ${d.status}: ${d.message}`;
@@ -38,6 +46,11 @@ export class GeminiError extends Error {
       case 'cancelled': return 'Cancelled.';
       default: return 'Gemini error.';
     }
+  }
+
+  /** Too busy: answered 503, or took the request and never answered. */
+  get isBusy() {
+    return this.kind === 'overloaded' || this.kind === 'noAnswer';
   }
 
   /** The generic refusal Google gives when the project's plan or billing blocks requests. */

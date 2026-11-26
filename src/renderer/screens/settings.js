@@ -79,9 +79,14 @@ function usageTable(usage) {
   if (!usage?.today?.length) return h('div', { class: 'caption' }, 'No Gemini requests yet today (days follow Google\'s quota day, Pacific time).');
   return [h('table', { class: 'table' },
     h('thead', {}, h('tr', {}, h('th', {}, 'Model, today'), h('th', {}, 'Requests'), h('th', {}, 'Tokens in / out'), h('th', {}, 'Last limit'))),
-    h('tbody', {}, usage.today.map((e) => h('tr', {}, h('td', {}, e.model), h('td', {}, e.requests), h('td', {}, `${Math.round(e.inputTokens / 1000)}k / ${Math.round(e.outputTokens / 1000)}k`),
-      h('td', { class: 'caption' }, e.lastLimit ?? '–'))))),
-  usage.bestLeft != null ? h('div', { class: 'caption' }, `Gemini 4 Hydrogen: about ${usage.bestLeft} free requests left today (${Math.floor(usage.bestLeft / 5)} reports).`) : null];
+    h('tbody', {}, usage.today.map((e) => h('tr', {}, h('td', {}, e.model),
+      h('td', {}, String(e.requests), e.unanswered ? h('div', { class: 'caption' }, `+${e.unanswered} unanswered`) : null),
+      h('td', {}, `${Math.round(e.inputTokens / 1000)}k / ${Math.round(e.outputTokens / 1000)}k`),
+      h('td', { class: 'caption' }, e.busyUntil
+        ? `Too busy to answer · asked again from ${new Date(e.busyUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+        : e.lastLimit ?? '–'))))),
+  usage.bestLeft != null ? h('div', { class: 'caption' }, `Gemini 4 Hydrogen: about ${usage.bestLeft} free requests left today (${Math.floor(usage.bestLeft / 5)} reports).`) : null,
+  usage.today.some((e) => e.unanswered) ? h('div', { class: 'caption' }, '"Unanswered" are requests a model was too busy to answer. Google may count them against the day\'s limit too, so ClimbCoach leaves a busy model alone for 20 minutes instead of asking again and again.') : null];
 }
 
 function updateText(update) {

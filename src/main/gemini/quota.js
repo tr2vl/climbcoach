@@ -2,6 +2,7 @@
 // (port of FreeTierLimits, QuotaMemory and GeminiUsageLog). Stored next to the app's data.
 import path from 'node:path';
 import { readJSON, writeJSON } from '../jsonfile.js';
+import { BUSY_PAUSE_MINUTES } from './errors.js';
 
 /** From the AI Studio rate-limit page (2026-11-25). Google changes them now and then. */
 export const FREE_TIER = {
@@ -41,10 +42,16 @@ export function nextReset(date = new Date()) {
 
 export class GeminiState {
   static refusalPause = 3_600_000;
+  /**
+   * How long a model that was too busy to answer is left alone. Google counts requests a busy model took
+   * (25–26 Nov 2026: 20 counted, 3 answered), so asking it again right away only burns the day's requests.
+   */
+  static busyPause = BUSY_PAUSE_MINUTES * 60_000;
 
   constructor(folder, { isPaidTier = () => false } = {}) {
     this.file = folder ? path.join(folder, 'gemini-usage.json') : null;
-    this.data = { dailyLimitUntil: {}, refusedAt: null, usage: [], ...(this.file ? readJSON(this.file, {}) : {}) };
+    this.data = { dailyLimitUntil: {}, busyUntil: {}, refusedAt: null, usage: [], ...(this.file ? readJSON(this.file, {}) : {}) };
+    this.data.busyUntil ??= {};
     this.isPaidTier = isPaidTier;
   }
 
@@ -63,6 +70,18 @@ export class GeminiState {
 
   exhaustedUntil(model, now = new Date()) {
     const until = this.data.dailyLimitUntil[model];
+    return until && new Date(until) > now ? new Date(until) : null;
+  }
+
+  markBusy(model, at = new Date()) {
+    this.data.busyUntil = Object.fromEntries(Object.entries(this.data.busyUntil).filter(([, until]) => new Date(until) > at));
+    this.data.busyUntil[model] = new Date(at.getTime() + GeminiState.busyPause).toISOString();
+    this.#save();
+  }
+
+  /** When a model that was too busy may be asked again, if that's still ahead. */
+  busyUntil(model, now = new Date()) {
+    const until = this.data.busyUntil[model];
     return until && new Date(until) > now ? new Date(until) : null;
   }
 
@@ -107,6 +126,11 @@ export class GeminiState {
     }
     this.data.refusedAt = null;
     this.#save();
+  }
+
+  /** A request sent to Google that brought back no answer because the model was too busy. Google may count it. */
+  recordUnanswered(model, at = new Date()) {
+    this.#update(model, at, (entry) => { entry.unanswered = (entry.unanswered ?? 0) + 1; });
   }
 
   recordLimit(model, description, at = new Date()) {

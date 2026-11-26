@@ -16,6 +16,11 @@ import { Training } from '../src/main/training.js';
 import { compare, summaries, weeklyDigest } from '../src/shared/progress.js';
 import { coachFacts, habitBrief, habitMatches, habitStreak, isLearned, isStalled, libraryCard, nudges, rankStruggles, struggleSamples } from '../src/shared/training.js';
 import { looksLikeGoogleKey, testKey } from '../src/main/keys.js';
+import { AnalysisCenter } from '../src/main/analysis/center.js';
+import { ReportProgress, ResumableEngine, fingerprint, stoppedByGemini } from '../src/main/analysis/progress.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 // ---------- Fake Gemini, answering by the system prompt ----------
 
@@ -218,6 +223,100 @@ test('a plan and billing refusal stops instead of trying every model', async () 
   await assert.rejects(router.run(async () => { calls += 1; throw errorFromResponse(429, JSON.stringify({ error: { message: 'Please check your plan and billing details.' } })); }), (e) => e.kind === 'accountRefused');
   assert.equal(calls, 1);
   assert.ok(state.accountRefusedRecently());
+});
+
+test('a request a busy model took is not sent again, and the model rests for 20 minutes', async () => {
+  const state = new GeminiState(null);
+  const calls = [];
+  const router = new ModelRouter({ models: ['a', 'b'], state, sleep: async (s) => { calls.push(`sleep ${s}`); } });
+  const first = await router.run(async (m) => { calls.push(m); if (m === 'a') throw new GeminiError('noAnswer', { minutes: 8 }); return m; });
+  assert.equal(first.model, 'b');
+  assert.deepEqual(calls, ['a', 'b']);
+  const until = state.busyUntil('a');
+  assert.ok(until && until - Date.now() > 19 * 60_000 && until - Date.now() <= 20 * 60_000);
+  await router.run(async (m) => { calls.push(m); return m; });
+  assert.deepEqual(calls, ['a', 'b', 'b']);
+  assert.equal(state.today().find((e) => e.model === 'a').unanswered, 1);
+  assert.equal(state.busyUntil('a', new Date(Date.now() + 21 * 60_000)), null);
+});
+
+test('an overloaded model gets one more try after 30 s, then rests', async () => {
+  const state = new GeminiState(null);
+  const calls = [];
+  const router = new ModelRouter({ models: ['a'], state, sleep: async (s) => { calls.push(`sleep ${s}`); } });
+  await assert.rejects(router.run(async (m) => { calls.push(m); throw errorFromResponse(503, '{"error":{"message":"high demand"}}'); }), (e) => e.kind === 'overloaded');
+  assert.deepEqual(calls, ['a', 'sleep 30', 'a']);
+  assert.equal(state.today()[0].unanswered, 2);
+  assert.equal(state.today()[0].requests, 0);
+  await assert.rejects(router.run(async (m) => { calls.push(m); return m; }), (e) => e.kind === 'overloaded');
+  assert.deepEqual(calls, ['a', 'sleep 30', 'a']); // no request while it rests
+  assert.match(new GeminiError('noAnswer', { minutes: 8 }).message, /didn't answer within 8 minutes/);
+  assert.match(new GeminiError('overloaded').message, /leaves it alone for 20 minutes/);
+});
+
+test('kept answers ignore the upload name but not the prompt or the model', () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-progress-'));
+  try {
+    const request = (text, uri = 'https://x/files/a') => makeRequest({ system: 'scout', parts: [part.video(uri, 'video/mp4', 1), part.text(text)] });
+    assert.equal(fingerprint(request('map it')), fingerprint(request('map it', 'https://x/files/b')));
+    const progress = ReportProgress.forMatch(folder, 'm1');
+    progress.keep({ text: '{}', usage: { input: 5, output: 1 } }, 'gemini-4-hydrogen', request('map it'));
+    assert.equal(progress.answer(request('map it', 'https://x/files/b'), ['gemini-4-hydrogen']).result.text, '{}');
+    assert.equal(progress.answer(request('map it again'), ['gemini-4-hydrogen']), null);
+    assert.equal(progress.answer(request('map it'), ['gemini-3.8-flash']), null);
+    assert.equal(progress.answer(request('map it'), ['gemini-4-hydrogen'], Date.now() + 4 * 86_400_000), null);
+    assert.equal(progress.count(), 1);
+    progress.clear();
+    assert.equal(progress.count(), 0);
+  } finally {
+    fs.rmSync(folder, { recursive: true, force: true });
+  }
+});
+
+test('a report that stopped halfway only asks for the missing parts', async () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-center-'));
+  try {
+    const video = path.join(folder, 'match.mp4');
+    fs.writeFileSync(video, 'x');
+    // Passes the first `answers` requests to the fake as Hydrogen's answers, then is too busy.
+    class BusyAfter {
+      constructor(answers) { Object.assign(this, { left: answers, fake: new FakeEngine(), prompts: [] }); }
+      upload() { return this.fake.upload(); }
+      async delete() {}
+      async generate(request) {
+        this.prompts.push(request.system.slice(0, 30));
+        this.left -= 1;
+        if (this.left < 0) throw new GeminiError('noAnswer', { minutes: 8 });
+        return { result: (await this.fake.generate(request)).result, model: 'gemini-4-hydrogen' };
+      }
+    }
+    const engines = [new BusyAfter(2), new BusyAfter(99)];
+    const used = [];
+    const db = new Database(null);
+    const match = db.addMatch({ playedAt: '2026-11-20T19:00:00Z', role: 'damage', heroKeys: ['soldier-76'], mapKey: 'hollywood', video: { path: video, durationSeconds: 600 } });
+    const center = new AnalysisCenter({ db, folder, keys: { read: () => 'k' }, state: new GeminiState(null),
+      settings: { get: () => ({ profile: { inGameName: 'Rookie' }, prefs: {} }) },
+      makeEngine: () => { const engine = engines.shift(); used.push(engine); return engine; } });
+    const finish = async () => { for (let i = 0; i < 200 && center.jobs.size; i += 1) await new Promise((r) => setTimeout(r, 10)); };
+
+    center.start(match.id);
+    await finish();
+    const failed = db.match(match.id).runs.at(-1);
+    assert.equal(failed.status, 'failed');
+    assert.match(failed.errorMessage, /The 2 parts of this report already done are kept/);
+    assert.equal(used[0].prompts.length, 3);
+
+    center.start(match.id);
+    await finish();
+    assert.equal(db.match(match.id).runs.at(-1).status, 'completed');
+    // The second try starts where the first stopped: the scout and the first specialist aren't asked again.
+    assert.equal(used[1].prompts[0], used[0].prompts[2]);
+    assert.equal(used[0].prompts.length - 1 + used[1].prompts.length, 5);
+    assert.equal(ReportProgress.forMatch(folder, match.id).count(), 0);
+    assert.ok(stoppedByGemini(new GeminiError('overloaded')) && !stoppedByGemini(new GeminiError('malformedResponse', { detail: 'x' })));
+  } finally {
+    fs.rmSync(folder, { recursive: true, force: true });
+  }
 });
 
 test('an invalid key is reported as such', () => {

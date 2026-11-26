@@ -157,7 +157,10 @@ function registerIPC() {
   handle('updates:status', () => updates.status);
   handle('updates:check', () => updates.check());
   handle('updates:install', () => updates.install());
-  handle('gemini:usage', () => ({ today: state.today(), bestLeft: analysis.requestsLeft() }));
+  handle('gemini:usage', () => ({
+    today: state.today().map((entry) => ({ ...entry, busyUntil: state.busyUntil(entry.model)?.toISOString() ?? null })),
+    bestLeft: analysis.requestsLeft(),
+  }));
 
   handle('data:snapshot', () => ({ ...db.snapshot(), clips: services.clips.index(), clipFolder: services.paths.clips }));
   handle('shell:videos', () => shell.openPath(services.paths.videos));
